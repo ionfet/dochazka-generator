@@ -6,6 +6,7 @@ import re
 import unicodedata
 import openpyxl
 from dataclasses import dataclass, field
+from datetime import time, date
 
 CZECH_MONTHS = {
     1: "Leden", 2: "Únor", 3: "Březen", 4: "Duben",
@@ -44,6 +45,73 @@ def _remove_diacritics(s: str) -> str:
 
 def _normalize(s: str) -> str:
     return _remove_diacritics(s.strip()).lower()
+
+
+WEEKDAY_OPEN = (6, 30)
+WEEKEND_OPEN = (8, 0)
+
+
+def _minutes_to_time(m: int) -> time:
+    m = max(0, min(m, 23 * 60 + 59))
+    return time(m // 60, m % 60)
+
+
+def _get_opening_minutes(d: date) -> int:
+    if d.weekday() >= 5:
+        return WEEKEND_OPEN[0] * 60 + WEEKEND_OPEN[1]
+    return WEEKDAY_OPEN[0] * 60 + WEEKDAY_OPEN[1]
+
+
+def assign_shifts(emp_hours: dict[str, float], operating_hours: float,
+                  day_date: date) -> dict[str, tuple[time, time]]:
+    """
+    Assign shift times for employees within cafe operating hours.
+
+    Returns: {name: (arrival_time, departure_time)}
+    """
+    if not emp_hours:
+        return {}
+
+    open_min = _get_opening_minutes(day_date)
+    close_min = open_min + int(operating_hours * 60)
+
+    employees = sorted(emp_hours.keys())
+    n = len(employees)
+    shifts = {}
+
+    if n == 1:
+        emp = employees[0]
+        start = open_min
+        end = start + int(emp_hours[emp] * 60)
+        shifts[emp] = (start, end)
+
+    elif n == 2:
+        emp_a, emp_b = employees[0], employees[1]
+        a_start = open_min
+        a_end = a_start + int(emp_hours[emp_a] * 60)
+        b_end = close_min
+        b_start = b_end - int(emp_hours[emp_b] * 60)
+        shifts[emp_a] = (a_start, a_end)
+        shifts[emp_b] = (b_start, b_end)
+
+    else:
+        current = open_min
+        for emp in employees:
+            start = current
+            end = start + int(emp_hours[emp] * 60)
+            shifts[emp] = (start, end)
+            current = end
+        last_emp = employees[-1]
+        _, last_end = shifts[last_emp]
+        if last_end > close_min:
+            diff = last_end - close_min
+            old_start = shifts[last_emp][0]
+            shifts[last_emp] = (old_start - diff, close_min)
+
+    return {
+        emp: (_minutes_to_time(s), _minutes_to_time(e))
+        for emp, (s, e) in shifts.items()
+    }
 
 
 def parse_mzdy(filepath: str):

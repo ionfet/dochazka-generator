@@ -1,7 +1,8 @@
 import os
 import tempfile
 import openpyxl
-from generator import DochazkaError, Summary, parse_mzdy
+from datetime import date, time
+from generator import DochazkaError, Summary, parse_mzdy, assign_shifts
 
 
 def test_dochazka_error_has_message():
@@ -125,3 +126,40 @@ def test_parse_mzdy_no_data():
         assert "данных" in str(e).lower()
     finally:
         os.unlink(path)
+
+
+def test_assign_shifts_one_employee():
+    # Monday, opens at 6:30
+    shifts = assign_shifts({"Novak": 8}, 12, date(2026, 3, 2))
+    assert shifts["Novak"] == (time(6, 30), time(14, 30))
+
+
+def test_assign_shifts_two_employees():
+    # Monday, opens 6:30, closes 18:30 (12h)
+    shifts = assign_shifts({"Novak": 8, "Svoboda": 6}, 12, date(2026, 3, 2))
+    # Novak opens: 6:30 - 14:30
+    assert shifts["Novak"] == (time(6, 30), time(14, 30))
+    # Svoboda closes: 12:30 - 18:30
+    assert shifts["Svoboda"] == (time(12, 30), time(18, 30))
+
+
+def test_assign_shifts_three_employees():
+    # Monday, opens 6:30, closes 18:30 (12h)
+    shifts = assign_shifts(
+        {"Novak": 4, "Kral": 4, "Svoboda": 4}, 12, date(2026, 3, 2)
+    )
+    # Sequential from opening (sorted alphabetically: Kral, Novak, Svoboda)
+    assert shifts["Kral"] == (time(6, 30), time(10, 30))
+    assert shifts["Novak"] == (time(10, 30), time(14, 30))
+    assert shifts["Svoboda"] == (time(14, 30), time(18, 30))
+
+
+def test_assign_shifts_weekend():
+    # Saturday, opens at 8:00
+    shifts = assign_shifts({"Novak": 6}, 10, date(2026, 3, 7))
+    assert shifts["Novak"] == (time(8, 0), time(14, 0))
+
+
+def test_assign_shifts_empty():
+    shifts = assign_shifts({}, 12, date(2026, 3, 2))
+    assert shifts == {}
