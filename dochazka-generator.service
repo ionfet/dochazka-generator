@@ -1,0 +1,18 @@
+[Unit]
+Description=Dochazka Generator Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ionfet
+WorkingDirectory=/home/ionfet/bots/dochazka-generator
+Environment=PATH=/home/ionfet/bots/dochazka-generator/venv/bin
+EnvironmentFile=/home/ionfet/bots/dochazka-generator/.env
+ExecStart=/home/ionfet/bots/dochazka-generator/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
