@@ -3,10 +3,12 @@
 """
 
 import re
+import calendar
 import unicodedata
 import openpyxl
 from dataclasses import dataclass, field
-from datetime import time, date
+from datetime import time, date, datetime
+from openpyxl.styles import Font
 
 CZECH_MONTHS = {
     1: "Leden", 2: "Únor", 3: "Březen", 4: "Duben",
@@ -241,3 +243,115 @@ def parse_mzdy(filepath: str):
         )
 
     return month, year, employee_names, full_names, days
+
+
+def _time_to_excel(t: time) -> float:
+    return (t.hour * 60 + t.minute) / 1440
+
+
+def generate(input_path: str, output_path: str) -> Summary:
+    """
+    Parse Mzdy file, generate Docházka file.
+
+    Returns Summary with stats.
+    Raises DochazkaError on problems.
+    """
+    month, year, employee_names, full_names, days = parse_mzdy(input_path)
+
+    num_days = calendar.monthrange(year, month)[1]
+    month_name = CZECH_MONTHS.get(month, str(month))
+
+    # Compute all shifts
+    all_shifts = {}
+    for day_data in days:
+        d = day_data["day"]
+        day_date = date(year, month, d)
+        shifts = assign_shifts(
+            day_data["employee_hours"],
+            day_data["operating_hours"],
+            day_date,
+        )
+        all_shifts[d] = shifts
+
+    # Find active employees (with >0 hours in the month)
+    active = {}
+    for day_data in days:
+        for name, hours in day_data["employee_hours"].items():
+            if hours > 0:
+                active.setdefault(name, 0)
+                active[name] += hours
+
+    # Generate workbook
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    for emp_name in sorted(active.keys()):
+        norm = _normalize(emp_name)
+        display_name = full_names.get(norm, emp_name)
+
+        parts = display_name.split()
+        if len(parts) >= 2:
+            tab_name = f"{parts[0][0]}. {parts[1]}"
+        else:
+            tab_name = emp_name
+        tab_name = tab_name[:31]
+
+        ws = wb.create_sheet(title=tab_name)
+
+        ws["A1"] = "Kniha docházky"
+        ws["A1"].font = Font(bold=True, size=12)
+        ws["A2"] = f"{month_name} {year}"
+        ws["A2"].font = Font(size=11)
+        ws["A3"] = display_name
+        ws["A3"].font = Font(bold=True, size=11)
+
+        headers = [
+            "Datum", "Příchod", "Odchod", "Přestávka (min)",
+            "Odpracováno (hod)", "Podpis zaměstnance",
+            "Podpis zaměstnavatele", "Poznámka",
+        ]
+        for i, h in enumerate(headers, 1):
+            cell = ws.cell(row=4, column=i, value=h)
+            cell.font = Font(bold=True)
+
+        total_hours = 0
+        row = 5
+        for day_num in range(1, num_days + 1):
+            day_dt = datetime(year, month, day_num)
+            ws.cell(row=row, column=1, value=day_dt)
+            ws.cell(row=row, column=1).number_format = "dd.mm.yyyy"
+
+            if day_num in all_shifts and emp_name in all_shifts[day_num]:
+                arrival, departure = all_shifts[day_num][emp_name]
+
+                ws.cell(row=row, column=2, value=_time_to_excel(arrival))
+                ws.cell(row=row, column=2).number_format = "h:mm"
+                ws.cell(row=row, column=3, value=_time_to_excel(departure))
+                ws.cell(row=row, column=3).number_format = "h:mm"
+
+                for dd in days:
+                    if dd["day"] == day_num and emp_name in dd["employee_hours"]:
+                        hours = dd["employee_hours"][emp_name]
+                        ws.cell(row=row, column=5, value=hours)
+                        total_hours += hours
+                        break
+
+            row += 1
+
+        ws.cell(row=row, column=4, value="Součet hodin:")
+        ws.cell(row=row, column=4).font = Font(bold=True)
+        ws.cell(row=row, column=5, value=total_hours)
+        ws.cell(row=row, column=5).font = Font(bold=True)
+
+        ws.column_dimensions["A"].width = 14
+        ws.column_dimensions["B"].width = 10
+        ws.column_dimensions["C"].width = 10
+        ws.column_dimensions["D"].width = 16
+        ws.column_dimensions["E"].width = 20
+        ws.column_dimensions["F"].width = 20
+        ws.column_dimensions["G"].width = 22
+        ws.column_dimensions["H"].width = 14
+
+    wb.save(output_path)
+
+    return Summary(month=month, year=year, employees=active)

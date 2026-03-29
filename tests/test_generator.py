@@ -2,7 +2,7 @@ import os
 import tempfile
 import openpyxl
 from datetime import date, time
-from generator import DochazkaError, Summary, parse_mzdy, assign_shifts
+from generator import DochazkaError, Summary, parse_mzdy, assign_shifts, generate
 
 
 def test_dochazka_error_has_message():
@@ -163,3 +163,81 @@ def test_assign_shifts_weekend():
 def test_assign_shifts_empty():
     shifts = assign_shifts({}, 12, date(2026, 3, 2))
     assert shifts == {}
+
+
+def test_generate_produces_file():
+    input_path = create_test_mzdy()
+    tmp_dir = tempfile.mkdtemp()
+    output_path = os.path.join(tmp_dir, "Dochazka_03.2026.xlsx")
+
+    summary = generate(input_path, output_path)
+
+    assert os.path.exists(output_path)
+    assert summary.month == 3
+    assert summary.year == 2026
+    assert "Novak" in summary.employees
+    assert "Svoboda" in summary.employees
+    assert summary.employees["Novak"] == 13  # 8 + 5
+    assert summary.employees["Svoboda"] == 6
+
+    os.unlink(input_path)
+    os.unlink(output_path)
+
+
+def test_generate_creates_sheets_per_employee():
+    input_path = create_test_mzdy()
+    tmp_dir = tempfile.mkdtemp()
+    output_path = os.path.join(tmp_dir, "Dochazka_03.2026.xlsx")
+
+    generate(input_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    assert len(wb.sheetnames) == 2  # Novak and Svoboda
+    wb.close()
+
+    os.unlink(input_path)
+    os.unlink(output_path)
+
+
+def test_generate_sheet_has_arrival_departure():
+    input_path = create_test_mzdy(
+        employees=["Novak"],
+        days={1: {"cafe": 12, "hours": {"Novak": 8}}},
+    )
+    tmp_dir = tempfile.mkdtemp()
+    output_path = os.path.join(tmp_dir, "Dochazka_03.2026.xlsx")
+
+    generate(input_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb.worksheets[0]
+    # Row 4 = headers, Row 5 = day 1
+    arrival = ws.cell(row=5, column=2).value  # time as Excel fraction
+    departure = ws.cell(row=5, column=3).value
+    assert arrival is not None
+    assert departure is not None
+    assert departure > arrival
+    wb.close()
+
+    os.unlink(input_path)
+    os.unlink(output_path)
+
+
+def test_generate_with_full_names():
+    input_path = create_test_mzdy(
+        employees=["Novak"],
+        full_names=[("Jan", "Novák")],
+        days={1: {"cafe": 10, "hours": {"Novak": 8}}},
+    )
+    tmp_dir = tempfile.mkdtemp()
+    output_path = os.path.join(tmp_dir, "Dochazka_03.2026.xlsx")
+
+    generate(input_path, output_path)
+
+    wb = openpyxl.load_workbook(output_path)
+    ws = wb.worksheets[0]
+    assert ws["A3"].value == "Jan Novák"
+    wb.close()
+
+    os.unlink(input_path)
+    os.unlink(output_path)
