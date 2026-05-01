@@ -300,8 +300,8 @@ def generate(input_path: str, output_path: str) -> Summary:
 
         ws["A1"] = "Kniha docházky"
         ws["A1"].font = Font(bold=True, size=12)
-        ws["A2"] = f"{month_name} {year}"
-        ws["A2"].font = Font(size=11)
+        ws["B1"] = f"{month_name} {year}"
+        ws["B1"].font = Font(size=11)
         ws["A3"] = display_name
         ws["A3"].font = Font(bold=True, size=11)
 
